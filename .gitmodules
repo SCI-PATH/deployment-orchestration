@@ -1,0 +1,6 @@
+[submodule "learner-analytics-genai-support"]
+	path = learner-analytics-genai-support
+	url = https://github.com/SCI-PATH/learner-analytics-genai-support.git
+[submodule "learning-path-engine"]
+	path = learning-path-engine
+	url = https://github.com/SCI-PATH/learning-path-engine.git
