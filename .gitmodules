@@ -1,12 +1,3 @@
-[submodule "learner-analytics-genai-support"]
-	path = learner-analytics-genai-support
-	url = https://github.com/SCI-PATH/learner-analytics-genai-support.git
-[submodule "learning-path-engine"]
-	path = learning-path-engine
-	url = https://github.com/SCI-PATH/learning-path-engine.git
-[submodule "gaming-service"]
-	path = gaming-service
-	url = https://github.com/SCI-PATH/gaming-service.git
 [submodule "services/intelligent-assessment-engine"]
 	path = services/intelligent-assessment-engine
 	url = https://github.com/SCI-PATH/intelligent-assessment-engine.git
