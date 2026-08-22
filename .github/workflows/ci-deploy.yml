@@ -3,8 +3,11 @@
 # Phase 1 (now): build + validate in GitHub Actions — no AWS.
 # Phase 2 (later): enable job "deploy-cloud" after ECR + EC2 exist.
 #
+# Secrets (deployment-orchestration repo):
+#   SUBMODULES_ACCESS_TOKEN — PAT with `repo` scope for all private SCI-PATH service repos
+#
 # Triggers:
-#   - push main → fast compose validate only
+#   - push main → fast compose validate only (no submodules)
 #   - workflow_dispatch → build selected image(s)
 #   - repository_dispatch (service-changed) → build one service from a backend repo push
 
@@ -47,7 +50,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
 
       - name: Validate docker compose file
         run: |
@@ -71,8 +74,15 @@ jobs:
             SHA="${{ github.event.client_payload.sha }}"
           else
             SVC="${{ inputs.service }}"
-            REPO="${{ github.repository }}"
-            SHA="${{ github.sha }}"
+            case "$SVC" in
+              lpe) REPO="SCI-PATH/learning-path-engine"; SHA="dev" ;;
+              um) REPO="SCI-PATH/user-management"; SHA="main" ;;
+              gaming) REPO="SCI-PATH/gaming-service"; SHA="main" ;;
+              analytics) REPO="SCI-PATH/learner-analytics-genai-support"; SHA="develop" ;;
+              iae) REPO="SCI-PATH/intelligent-assessment-engine"; SHA="dev" ;;
+              all) REPO="all"; SHA="all" ;;
+              *) REPO="unknown"; SHA="unknown" ;;
+            esac
           fi
           if [ -z "$SVC" ]; then SVC=all; fi
           echo "service=$SVC" >> "$GITHUB_OUTPUT"
@@ -86,16 +96,72 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - name: Checkout orchestration (with submodules)
+      - name: Checkout orchestration
         uses: actions/checkout@v4
         with:
-          submodules: recursive
+          submodules: false
 
-      - name: Update submodules to remote tips
+      - name: Checkout private service repositories
+        env:
+          SERVICE: ${{ needs.resolve.outputs.service }}
+          SOURCE_REPO: ${{ needs.resolve.outputs.source_repo }}
+          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+          TOKEN: ${{ secrets.SUBMODULES_ACCESS_TOKEN }}
         run: |
-          git submodule sync --recursive
-          git submodule update --init --recursive
-          git submodule update --remote --merge || true
+          set -euo pipefail
+          if [ -z "${TOKEN:-}" ]; then
+            echo "Missing secret SUBMODULES_ACCESS_TOKEN on deployment-orchestration."
+            echo "Add a PAT with repo scope that can read all SCI-PATH service repos."
+            exit 1
+          fi
+
+          clone_repo() {
+            local repo="$1" dest="$2" ref="$3"
+            echo "Cloning ${repo} → ${dest} @ ${ref}"
+            rm -rf "$dest"
+            mkdir -p "$(dirname "$dest")"
+            git -c http.extraHeader="AUTHORIZATION: bearer ${TOKEN}" \
+              clone "https://github.com/${repo}.git" "$dest"
+            git -C "$dest" -c http.extraHeader="AUTHORIZATION: bearer ${TOKEN}" \
+              fetch --depth 1 origin "$ref"
+            git -C "$dest" checkout FETCH_HEAD
+          }
+
+          declare -A REPOS=(
+            [lpe]="SCI-PATH/learning-path-engine"
+            [um]="SCI-PATH/user-management"
+            [gaming]="SCI-PATH/gaming-service"
+            [analytics]="SCI-PATH/learner-analytics-genai-support"
+            [iae]="SCI-PATH/intelligent-assessment-engine"
+          )
+          declare -A PATHS=(
+            [lpe]="services/learning-path-engine"
+            [um]="services/user-management"
+            [gaming]="services/gaming-service"
+            [analytics]="services/learner-analytics-genai-support"
+            [iae]="services/intelligent-assessment-engine"
+          )
+          declare -A DEFAULT_REFS=(
+            [lpe]="dev"
+            [um]="main"
+            [gaming]="main"
+            [analytics]="develop"
+            [iae]="dev"
+          )
+
+          if [ "$SERVICE" = "all" ]; then
+            for key in lpe um gaming analytics iae; do
+              clone_repo "${REPOS[$key]}" "${PATHS[$key]}" "${DEFAULT_REFS[$key]}"
+            done
+          else
+            repo="$SOURCE_REPO"
+            ref="$SOURCE_SHA"
+            if [ "$repo" = "unknown" ] || [ -z "$repo" ]; then
+              repo="${REPOS[$SERVICE]}"
+              ref="${DEFAULT_REFS[$SERVICE]}"
+            fi
+            clone_repo "$repo" "${PATHS[$SERVICE]}" "$ref"
+          fi
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -109,7 +175,7 @@ jobs:
             local name="$1" context="$2" tag="$3" file="${4:-Dockerfile}"
             echo "::group::Build $name → $tag"
             if [ ! -d "$context" ]; then
-              echo "Missing $context — is the submodule initialized?"
+              echo "Missing $context — checkout step failed?"
               exit 1
             fi
             if [ "$file" = "Dockerfile" ]; then
