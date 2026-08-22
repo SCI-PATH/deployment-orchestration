@@ -1,0 +1,11 @@
+.env
+*.pem
+*.key
+.DS_Store
+Thumbs.db
+
+# Local override compose (optional)
+docker-compose.override.yml
+
+# Submodule working trees may contain their own junk; ignore common secrets if present
+**/secrets/

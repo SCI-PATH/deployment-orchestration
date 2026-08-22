@@ -13,3 +13,7 @@
 [submodule "frontend/frontend-app"]
 	path = frontend/frontend-app
 	url = https://github.com/SCI-PATH/frontend-app.git
+
+[submodule "services/user-management"]
+	path = services/user-management
+	url = https://github.com/SCI-PATH/user-management.git

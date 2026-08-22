@@ -1,0 +1,27 @@
+# Copy to: gaming-service/.github/workflows/trigger-orchestration.yml
+# Secret required on this repo: ORCHESTRATION_DISPATCH_TOKEN
+
+name: trigger-orchestration
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch service-changed (gaming)
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.ORCHESTRATION_DISPATCH_TOKEN }}
+          repository: SCI-PATH/deployment-orchestration
+          event-type: service-changed
+          client-payload: |
+            {
+              "service": "gaming",
+              "source_repo": "${{ github.repository }}",
+              "sha": "${{ github.sha }}",
+              "ref": "${{ github.ref }}"
+            }

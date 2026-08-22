@@ -1,0 +1,183 @@
+# SCI-PATH — local / single-EC2 stack (5 backends).
+# Uses pre-built image tags by default. Compose can also build from ./services/* submodules.
+#
+# Ports (no clashes):
+#   8000 LPE | 8001 UM | 8002 Gaming | 8003 Analytics | 8004 IAE
+#
+#   copy .env.example .env
+#   git submodule update --init --recursive
+#   docker compose up -d
+
+name: sci-path
+
+services:
+  learning-path-engine:
+    image: sci-path-lpe:local
+    build:
+      context: ./services/learning-path-engine/backend
+      dockerfile: Dockerfile
+    container_name: sci-path-lpe
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      DATABASE_URL: ${LPE_DATABASE_URL:-${DATABASE_URL:-}}
+      CONTENT_DATABASE_URL: ${CONTENT_DATABASE_URL:-${LPE_DATABASE_URL:-${DATABASE_URL:-}}}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    volumes:
+      - lpe-data:/app/data
+    networks:
+      - sci-path
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  user-management:
+    image: sci-path-um:local
+    build:
+      context: ./services/user-management/backend
+      dockerfile: Dockerfile
+    container_name: sci-path-um
+    ports:
+      - "8001:8001"
+    env_file:
+      - .env
+    environment:
+      CORS_ORIGINS: ${CORS_ORIGINS}
+      DATABASE_URL: ${UM_DATABASE_URL:-${DATABASE_URL:-sqlite:///./data/users.db}}
+      JWT_SECRET: ${JWT_SECRET:-dev-change-me-user-management-secret-key-32chars}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-360}
+      EXPOSE_RESET_TOKEN: ${EXPOSE_RESET_TOKEN:-true}
+    volumes:
+      - um-data:/app/data
+    networks:
+      - sci-path
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8001/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  gaming-backend:
+    image: sci-path-gaming:local
+    build:
+      context: ./services/gaming-service/backend
+      dockerfile: Dockerfile
+    container_name: sci-path-gaming
+    ports:
+      - "8002:8002"
+    env_file:
+      - .env
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8002"
+      AVATAR_PORT: "8002"
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      LLAMA_PROVIDER: ${LLAMA_PROVIDER:-groq}
+      LLAMA_MODEL: ${LLAMA_MODEL:-llama-3.3-70b-versatile}
+    volumes:
+      - gaming-data:/app/data
+    networks:
+      - sci-path
+    restart: unless-stopped
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://127.0.0.1:8002/api/health').then((r)=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  learner-analytics:
+    image: sci-path-analytics:local
+    build:
+      context: ./services/learner-analytics-genai-support
+      dockerfile: FastAPI-Backend/Dockerfile
+    container_name: sci-path-analytics
+    ports:
+      - "8003:8003"
+    env_file:
+      - .env
+    environment:
+      PORT: "8003"
+      DATABASE_URL: ${ANALYTICS_DATABASE_URL:-${DATABASE_URL:-}}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+    volumes:
+      - analytics-chroma:/app/.chroma_science_g6_g9
+    networks:
+      - sci-path
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8003/docs"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+
+  intelligent-assessment-engine:
+    image: sci-path-iae:local
+    build:
+      context: ./services/intelligent-assessment-engine
+      dockerfile: Dockerfile
+    container_name: sci-path-iae
+    ports:
+      - "8004:8004"
+    env_file:
+      - .env
+    environment:
+      PORT: "8004"
+      HOST: 0.0.0.0
+      API_BASE_URL: ${IAE_API_BASE_URL:-http://localhost:8004}
+      DATABASE_URL: ${IAE_DATABASE_URL:-${DATABASE_URL:-}}
+      CHROMA_PERSIST_DIR: /app/data/chroma_db
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      LLM_PROVIDER: ${LLM_PROVIDER:-groq}
+      COMPONENT_1_URL: ${COMPONENT_1_URL:-http://learning-path-engine:8000}
+      COMPONENT_3_URL: ${COMPONENT_3_URL:-http://gaming-backend:8002}
+      COMPONENT_4_URL: ${COMPONENT_4_URL:-http://learner-analytics:8003}
+      ANALYTICS_BASE_URL: ${ANALYTICS_BASE_URL:-http://learner-analytics:8003}
+    volumes:
+      - iae-data:/app/data
+    networks:
+      - sci-path
+    restart: unless-stopped
+    depends_on:
+      - learner-analytics
+      - learning-path-engine
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/', timeout=4)",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+networks:
+  sci-path:
+    driver: bridge
+
+volumes:
+  lpe-data:
+  um-data:
+  gaming-data:
+  analytics-chroma:
+  iae-data:

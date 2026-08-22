@@ -1,0 +1,38 @@
+# Copy this file into EACH backend repo as:
+#   .github/workflows/trigger-orchestration.yml
+#
+# Ready-made copies live in docs/triggers/<repo-name>.yml
+#
+# Setup (once per service repo):
+#   1. Create a GitHub PAT with `repo` scope (access to SCI-PATH/deployment-orchestration)
+#   2. Add secret ORCHESTRATION_DISPATCH_TOKEN on the service repo
+#   3. Copy the matching file from docs/triggers/
+#
+# When you push to dev/main on a service repo, orchestration CI rebuilds that image.
+
+name: trigger-orchestration
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch service-changed to deployment-orchestration
+        uses: peter-evans/repository-dispatch@v3
+        with:
+          token: ${{ secrets.ORCHESTRATION_DISPATCH_TOKEN }}
+          repository: SCI-PATH/deployment-orchestration
+          event-type: service-changed
+          client-payload: |
+            {
+              "service": "REPLACE_ME",
+              "source_repo": "${{ github.repository }}",
+              "sha": "${{ github.sha }}",
+              "ref": "${{ github.ref }}"
+            }
+
+# REPLACE_ME → lpe | um | gaming | analytics | iae

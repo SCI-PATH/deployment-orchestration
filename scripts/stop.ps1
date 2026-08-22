@@ -1,5 +1,3 @@
-Write-Host "🛑 Stopping all services..." -ForegroundColor Red
-
-docker-compose down
-
-Write-Host "✅ All services stopped." -ForegroundColor Green
+Write-Host "Stopping SCI-PATH stack..." -ForegroundColor Red
+docker compose down
+Write-Host "All compose services stopped." -ForegroundColor Green
