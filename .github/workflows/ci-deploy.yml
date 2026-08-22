@@ -101,67 +101,58 @@ jobs:
         with:
           submodules: false
 
-      - name: Checkout private service repositories
-        env:
-          SERVICE: ${{ needs.resolve.outputs.service }}
-          SOURCE_REPO: ${{ needs.resolve.outputs.source_repo }}
-          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
-          TOKEN: ${{ secrets.SUBMODULES_ACCESS_TOKEN }}
+      - name: Verify submodule access token
         run: |
-          set -euo pipefail
-          if [ -z "${TOKEN:-}" ]; then
+          if [ -z "${{ secrets.SUBMODULES_ACCESS_TOKEN }}" ]; then
             echo "Missing secret SUBMODULES_ACCESS_TOKEN on deployment-orchestration."
             echo "Add a PAT with repo scope that can read all SCI-PATH service repos."
             exit 1
           fi
 
-          clone_repo() {
-            local repo="$1" dest="$2" ref="$3"
-            echo "Cloning ${repo} → ${dest} @ ${ref}"
-            rm -rf "$dest"
-            mkdir -p "$(dirname "$dest")"
-            git -c http.extraHeader="AUTHORIZATION: bearer ${TOKEN}" \
-              clone "https://github.com/${repo}.git" "$dest"
-            git -C "$dest" -c http.extraHeader="AUTHORIZATION: bearer ${TOKEN}" \
-              fetch --depth 1 origin "$ref"
-            git -C "$dest" checkout FETCH_HEAD
-          }
+      - name: Checkout learning-path-engine
+        if: contains(fromJSON('["all","lpe"]'), needs.resolve.outputs.service)
+        uses: actions/checkout@v4
+        with:
+          repository: SCI-PATH/learning-path-engine
+          ref: ${{ needs.resolve.outputs.service == 'lpe' && needs.resolve.outputs.source_sha || 'dev' }}
+          path: services/learning-path-engine
+          token: ${{ secrets.SUBMODULES_ACCESS_TOKEN }}
 
-          declare -A REPOS=(
-            [lpe]="SCI-PATH/learning-path-engine"
-            [um]="SCI-PATH/user-management"
-            [gaming]="SCI-PATH/gaming-service"
-            [analytics]="SCI-PATH/learner-analytics-genai-support"
-            [iae]="SCI-PATH/intelligent-assessment-engine"
-          )
-          declare -A PATHS=(
-            [lpe]="services/learning-path-engine"
-            [um]="services/user-management"
-            [gaming]="services/gaming-service"
-            [analytics]="services/learner-analytics-genai-support"
-            [iae]="services/intelligent-assessment-engine"
-          )
-          declare -A DEFAULT_REFS=(
-            [lpe]="dev"
-            [um]="main"
-            [gaming]="main"
-            [analytics]="develop"
-            [iae]="dev"
-          )
+      - name: Checkout user-management
+        if: contains(fromJSON('["all","um"]'), needs.resolve.outputs.service)
+        uses: actions/checkout@v4
+        with:
+          repository: SCI-PATH/user-management
+          ref: ${{ needs.resolve.outputs.service == 'um' && needs.resolve.outputs.source_sha || 'main' }}
+          path: services/user-management
+          token: ${{ secrets.SUBMODULES_ACCESS_TOKEN }}
 
-          if [ "$SERVICE" = "all" ]; then
-            for key in lpe um gaming analytics iae; do
-              clone_repo "${REPOS[$key]}" "${PATHS[$key]}" "${DEFAULT_REFS[$key]}"
-            done
-          else
-            repo="$SOURCE_REPO"
-            ref="$SOURCE_SHA"
-            if [ "$repo" = "unknown" ] || [ -z "$repo" ]; then
-              repo="${REPOS[$SERVICE]}"
-              ref="${DEFAULT_REFS[$SERVICE]}"
-            fi
-            clone_repo "$repo" "${PATHS[$SERVICE]}" "$ref"
-          fi
+      - name: Checkout gaming-service
+        if: contains(fromJSON('["all","gaming"]'), needs.resolve.outputs.service)
+        uses: actions/checkout@v4
+        with:
+          repository: SCI-PATH/gaming-service
+          ref: ${{ needs.resolve.outputs.service == 'gaming' && needs.resolve.outputs.source_sha || 'main' }}
+          path: services/gaming-service
+          token: ${{ secrets.SUBMODULES_ACCESS_TOKEN }}
+
+      - name: Checkout learner-analytics
+        if: contains(fromJSON('["all","analytics"]'), needs.resolve.outputs.service)
+        uses: actions/checkout@v4
+        with:
+          repository: SCI-PATH/learner-analytics-genai-support
+          ref: ${{ needs.resolve.outputs.service == 'analytics' && needs.resolve.outputs.source_sha || 'develop' }}
+          path: services/learner-analytics-genai-support
+          token: ${{ secrets.SUBMODULES_ACCESS_TOKEN }}
+
+      - name: Checkout intelligent-assessment-engine
+        if: contains(fromJSON('["all","iae"]'), needs.resolve.outputs.service)
+        uses: actions/checkout@v4
+        with:
+          repository: SCI-PATH/intelligent-assessment-engine
+          ref: ${{ needs.resolve.outputs.service == 'iae' && needs.resolve.outputs.source_sha || 'dev' }}
+          path: services/intelligent-assessment-engine
+          token: ${{ secrets.SUBMODULES_ACCESS_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
