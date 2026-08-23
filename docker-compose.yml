@@ -26,8 +26,13 @@ services:
       DATABASE_URL: ${LPE_DATABASE_URL:-${DATABASE_URL:-}}
       CONTENT_DATABASE_URL: ${CONTENT_DATABASE_URL:-${LPE_DATABASE_URL:-${DATABASE_URL:-}}}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
+      GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
+      GROQ_FALLBACK_MODEL: ${GROQ_FALLBACK_MODEL:-qwen/qwen3.6-27b}
+      TEXTBOOK_PDF_ROOT: /app/data/textbooks
     volumes:
       - lpe-data:/app/data
+      - lpe-chroma-cache:/root/.cache/chroma
+      - ${TEXTBOOKS_HOST_PATH:-../learning-path-engine/backend/data/textbooks}:/app/data/textbooks:ro
     networks:
       - sci-path
     restart: unless-stopped
@@ -83,7 +88,7 @@ services:
       AVATAR_PORT: "8002"
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       LLAMA_PROVIDER: ${LLAMA_PROVIDER:-groq}
-      LLAMA_MODEL: ${LLAMA_MODEL:-llama-3.3-70b-versatile}
+      LLAMA_MODEL: ${LLAMA_MODEL:-openai/gpt-oss-120b}
     volumes:
       - gaming-data:/app/data
     networks:
@@ -116,8 +121,10 @@ services:
       PORT: "8003"
       DATABASE_URL: ${ANALYTICS_DATABASE_URL:-${DATABASE_URL:-}}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
+      TEXTBOOK_PDF_ROOT: /app/Data/Syllabi/textbooks
     volumes:
       - analytics-chroma:/app/.chroma_science_g6_g9
+      - ${TEXTBOOKS_HOST_PATH:-../learning-path-engine/backend/data/textbooks}:/app/Data/Syllabi/textbooks:ro
     networks:
       - sci-path
     restart: unless-stopped
@@ -152,6 +159,7 @@ services:
       ANALYTICS_BASE_URL: ${ANALYTICS_BASE_URL:-http://learner-analytics:8003}
     volumes:
       - iae-data:/app/data
+      - ${TEXTBOOKS_HOST_PATH:-../learning-path-engine/backend/data/textbooks}:/app/data/textbooks:ro
     networks:
       - sci-path
     restart: unless-stopped
@@ -177,6 +185,7 @@ networks:
 
 volumes:
   lpe-data:
+  lpe-chroma-cache:
   um-data:
   gaming-data:
   analytics-chroma:

@@ -28,8 +28,10 @@ fi
 
 echo "==> Next steps (manual):"
 echo "  1. Copy .env to $APP_DIR/.env (Neon URLs, GROQ_API_KEY, JWT_SECRET, CORS with EC2 IP)"
-echo "  2. Set IAE_API_BASE_URL=http://<EC2_PUBLIC_IP>:8004"
-echo "  3. Configure AWS CLI on instance OR attach IAM role with ECR read"
-echo "  4. Run: cd $APP_DIR && bash scripts/ec2/deploy.sh all"
+echo "  2. Set TEXTBOOKS_HOST_PATH=./services/learning-path-engine/backend/data/textbooks"
+echo "  3. Set IAE_API_BASE_URL=http://<EC2_PUBLIC_IP>:8004"
+echo "  4. Configure AWS CLI on instance OR attach IAM role with ECR read"
+echo "  5. Run: cd $APP_DIR && bash scripts/ec2/deploy.sh all"
+echo "  6. After first deploy: bash scripts/ingest-chromas.sh  (one-time Chroma build)"
 echo ""
 echo "Bootstrap complete."
