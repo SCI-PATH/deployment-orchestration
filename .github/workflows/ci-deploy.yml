@@ -1,14 +1,19 @@
 # SCI-PATH — one pipeline for all backends.
 #
-# Phase 1 (now): build + validate in GitHub Actions — no AWS.
-# Phase 2 (later): enable job "deploy-cloud" after ECR + EC2 exist.
+# Flow: service push → repository_dispatch → build image(s) → push ECR → SSH EC2 pull/restart
+# Manual: Actions → sci-path-deploy → Run workflow → pick service
 #
-# Secrets (deployment-orchestration repo):
+# Secrets (deployment-orchestration repo) — see docs/ecr-pipeline.md:
 #   SUBMODULES_ACCESS_TOKEN — PAT with `repo` scope for all private SCI-PATH service repos
+#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY — ECR push
+#   AWS_REGION — e.g. ap-south-1
+#   EC2_HOST — Elastic IP (e.g. 3.6.20.31)
+#   EC2_SSH_KEY — private key PEM contents
+#   EC2_USER — ubuntu (optional; defaults to ubuntu)
 #
 # Triggers:
 #   - push main → fast compose validate only (no submodules)
-#   - workflow_dispatch → build selected image(s)
+#   - workflow_dispatch → build selected image(s) + deploy
 #   - repository_dispatch (service-changed) → build one service from a backend repo push
 
 name: sci-path-deploy
@@ -43,6 +48,10 @@ concurrency:
   group: sci-path-deploy-${{ github.event_name }}-${{ github.event.client_payload.service || inputs.service || 'main' }}
   cancel-in-progress: true
 
+env:
+  AWS_REGION: ${{ secrets.AWS_REGION || 'ap-south-1' }}
+  ECR_REGISTRY: 011877215030.dkr.ecr.ap-south-1.amazonaws.com
+
 jobs:
   validate:
     if: github.event_name == 'push'
@@ -65,6 +74,7 @@ jobs:
       service: ${{ steps.pick.outputs.service }}
       source_repo: ${{ steps.pick.outputs.source_repo }}
       source_sha: ${{ steps.pick.outputs.source_sha }}
+      image_tag: ${{ steps.pick.outputs.image_tag }}
     steps:
       - id: pick
         run: |
@@ -85,10 +95,17 @@ jobs:
             esac
           fi
           if [ -z "$SVC" ]; then SVC=all; fi
+          # Short immutable tag for ECR (7-char sha when available)
+          if [ "$SHA" = "all" ] || [ "$SHA" = "unknown" ] || [ "$SHA" = "dev" ] || [ "$SHA" = "main" ] || [ "$SHA" = "develop" ]; then
+            TAG="${GITHUB_SHA:0:7}"
+          else
+            TAG="${SHA:0:7}"
+          fi
           echo "service=$SVC" >> "$GITHUB_OUTPUT"
           echo "source_repo=${REPO:-unknown}" >> "$GITHUB_OUTPUT"
           echo "source_sha=${SHA:-unknown}" >> "$GITHUB_OUTPUT"
-          echo "Resolved service=$SVC (from ${REPO:-manual})"
+          echo "image_tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Resolved service=$SVC (from ${REPO:-manual}) tag=$TAG"
 
   build:
     needs: resolve
@@ -198,30 +215,113 @@ jobs:
           cp .env.example .env
           docker compose config -q
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Push image(s) to ECR
+        env:
+          SERVICE: ${{ needs.resolve.outputs.service }}
+          IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
+        run: |
+          set -euo pipefail
+          REGISTRY="${{ env.ECR_REGISTRY }}"
+
+          push_one () {
+            local local_tag="$1" ecr_repo="$2"
+            local remote_latest="${REGISTRY}/${ecr_repo}:latest"
+            local remote_sha="${REGISTRY}/${ecr_repo}:${IMAGE_TAG}"
+            echo "::group::Push ${local_tag} → ${ecr_repo}"
+            docker tag "$local_tag" "$remote_latest"
+            docker tag "$local_tag" "$remote_sha"
+            docker push "$remote_latest"
+            docker push "$remote_sha"
+            echo "::endgroup::"
+          }
+
+          case "$SERVICE" in
+            all)
+              push_one sci-path-lpe:ci sci-path/lpe
+              push_one sci-path-um:ci sci-path/um
+              push_one sci-path-gaming:ci sci-path/gaming
+              push_one sci-path-analytics:ci sci-path/analytics
+              push_one sci-path-iae:ci sci-path/iae
+              ;;
+            lpe) push_one sci-path-lpe:ci sci-path/lpe ;;
+            um) push_one sci-path-um:ci sci-path/um ;;
+            gaming) push_one sci-path-gaming:ci sci-path/gaming ;;
+            analytics) push_one sci-path-analytics:ci sci-path/analytics ;;
+            iae) push_one sci-path-iae:ci sci-path/iae ;;
+            *) echo "Unknown service: $SERVICE"; exit 1 ;;
+          esac
+
       - name: Build summary
         env:
           SERVICE: ${{ needs.resolve.outputs.service }}
           SOURCE_REPO: ${{ needs.resolve.outputs.source_repo }}
           SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
+          IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
         run: |
-          echo "## SCI-PATH CI build" >> "$GITHUB_STEP_SUMMARY"
+          echo "## SCI-PATH CI build + ECR push" >> "$GITHUB_STEP_SUMMARY"
           echo "- Service: **$SERVICE**" >> "$GITHUB_STEP_SUMMARY"
           echo "- Trigger: ${{ github.event_name }}" >> "$GITHUB_STEP_SUMMARY"
           echo "- Source: \`$SOURCE_REPO\` @ \`${SOURCE_SHA:0:7}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Cloud deploy: disabled (enable after AWS is ready)" >> "$GITHUB_STEP_SUMMARY"
+          echo "- ECR tag: \`:latest\` + \`:$IMAGE_TAG\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Registry: \`${{ env.ECR_REGISTRY }}\`" >> "$GITHUB_STEP_SUMMARY"
 
   deploy-cloud:
-    needs: build
-    if: false
+    needs: [resolve, build]
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     steps:
-      - name: Push to ECR + restart EC2
+      - name: Verify EC2 deploy secrets
+        run: |
+          if [ -z "${{ secrets.EC2_HOST }}" ] || [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
+            echo "Missing EC2_HOST or EC2_SSH_KEY secrets on deployment-orchestration."
+            echo "See docs/ecr-pipeline.md"
+            exit 1
+          fi
+          echo "EC2 deploy secrets present."
+
+      - name: Deploy to EC2 (pull + restart)
+        env:
+          SERVICE: ${{ needs.resolve.outputs.service }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -euo pipefail
+          EC2_USER="${EC2_USER:-ubuntu}"
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2.pem
+          chmod 600 ~/.ssh/ec2.pem
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+          case "$SERVICE" in
+            all) ARGS="all" ;;
+            lpe) ARGS="lpe" ;;
+            um) ARGS="um" ;;
+            gaming) ARGS="gaming" ;;
+            analytics) ARGS="analytics" ;;
+            iae) ARGS="iae" ;;
+            *) echo "Unknown service: $SERVICE"; exit 1 ;;
+          esac
+
+          ssh -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=accept-new \
+            "${EC2_USER}@${EC2_HOST}" \
+            "cd /opt/sci-path/deployment-orchestration && bash scripts/ec2/deploy.sh ${ARGS}"
+
+      - name: Deploy summary
         env:
           SERVICE: ${{ needs.resolve.outputs.service }}
         run: |
-          echo "Phase 2 — wire when AWS exists:"
-          echo "  1. aws ecr get-login-password | docker login ..."
-          echo "  2. docker tag sci-path-*:ci \$ECR_REGISTRY/sci-path-*:latest"
-          echo "  3. docker push ..."
-          echo "  4. ssh ubuntu@\$EC2_HOST 'cd /opt/sci-path/deployment-orchestration && docker compose pull && docker compose up -d'"
-          echo "Selected service: $SERVICE"
+          echo "## EC2 deploy" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Host: \`${{ secrets.EC2_HOST }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Service: **$SERVICE**" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Command: \`bash scripts/ec2/deploy.sh\`" >> "$GITHUB_STEP_SUMMARY"
