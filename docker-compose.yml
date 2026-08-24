@@ -36,6 +36,11 @@ services:
       GROQ_MODEL: ${GROQ_MODEL:-openai/gpt-oss-120b}
       GROQ_FALLBACK_MODEL: ${GROQ_FALLBACK_MODEL:-qwen/qwen3.6-27b}
       TEXTBOOK_PDF_ROOT: /app/data/textbooks
+      AWS_REGION: ${AWS_REGION:-ap-south-1}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      S3_BUCKET: ${S3_BUCKET:-}
+      S3_LESSON_PREFIX: ${S3_LESSON_PREFIX:-lesson-media}
     volumes:
       - lpe-data:/app/data
       - lpe-chroma-cache:/root/.cache/chroma
