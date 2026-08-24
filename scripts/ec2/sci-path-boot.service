@@ -1,0 +1,22 @@
+[Unit]
+Description=SCI-PATH pull latest ECR images and start compose
+Documentation=file:///opt/sci-path/deployment-orchestration/docs/ecr-pipeline.md
+After=network-online.target docker.service
+Wants=network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+User=ubuntu
+Group=ubuntu
+Environment=HOME=/home/ubuntu
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+WorkingDirectory=/opt/sci-path/deployment-orchestration
+# Let Docker + networking finish after a cold start.
+ExecStartPre=/bin/sleep 20
+ExecStart=/bin/bash /opt/sci-path/deployment-orchestration/scripts/ec2/deploy.sh all
+TimeoutStartSec=900
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

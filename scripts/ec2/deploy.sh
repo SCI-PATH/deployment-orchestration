@@ -45,7 +45,8 @@ aws ecr get-login-password --region "$REGION" \
   | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
 echo "==> Refreshing orchestration repo (compose + scripts only)..."
-git pull --ff-only || echo "WARN: git pull failed (continuing with current tree)"
+GIT_TERMINAL_PROMPT=0 git -c credential.helper= pull --ff-only \
+  || echo "WARN: git pull failed (continuing with current tree)"
 
 compose_svc() {
   case "$1" in

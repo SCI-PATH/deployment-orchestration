@@ -131,10 +131,11 @@ services:
       PORT: "8003"
       DATABASE_URL: ${ANALYTICS_DATABASE_URL:-${DATABASE_URL:-}}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
-      TEXTBOOK_PDF_ROOT: /app/Data/Syllabi/textbooks
+      # PDFs are baked into the image from learner-analytics-genai-support/Data/Syllabi/
+      # (not LPE textbooks). Optional host override:
+      TEXTBOOK_PDF_ROOT: ${ANALYTICS_TEXTBOOK_PDF_ROOT:-}
     volumes:
       - analytics-chroma:/app/.chroma_science_g6_g9
-      - ${TEXTBOOKS_HOST_PATH:-../learning-path-engine/backend/data/textbooks}:/app/Data/Syllabi/textbooks:ro
     networks:
       - sci-path
     restart: unless-stopped
