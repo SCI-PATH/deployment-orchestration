@@ -65,6 +65,7 @@ jobs:
       source_repo: ${{ steps.pick.outputs.source_repo }}
       source_sha: ${{ steps.pick.outputs.source_sha }}
       image_tag: ${{ steps.pick.outputs.image_tag }}
+      matrix: ${{ steps.pick.outputs.matrix }}
     steps:
       - id: pick
         run: |
@@ -94,58 +95,75 @@ jobs:
           echo "source_repo=${REPO:-unknown}" >> "$GITHUB_OUTPUT"
           echo "source_sha=${SHA:-unknown}" >> "$GITHUB_OUTPUT"
           echo "image_tag=$TAG" >> "$GITHUB_OUTPUT"
+          if [ "$SVC" = "all" ]; then
+            echo 'matrix=["lpe","um","gaming","analytics","iae"]' >> "$GITHUB_OUTPUT"
+          else
+            echo "matrix=[\"$SVC\"]" >> "$GITHUB_OUTPUT"
+          fi
           echo "Resolved service=$SVC (from ${REPO:-manual}) tag=$TAG"
 
   build:
     needs: resolve
-    if: github.event_name != 'push' && (needs.resolve.outputs.service == 'all' || needs.resolve.outputs.service == matrix.svc)
+    if: github.event_name != 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 90
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - svc: lpe
-            github_repo: SCI-PATH/learning-path-engine
-            default_ref: dev
-            checkout_path: services/learning-path-engine
-            context: services/learning-path-engine/backend
-            dockerfile: Dockerfile
-            local_tag: sci-path-lpe:ci
-            ecr_repo: sci-path/lpe
-          - svc: um
-            github_repo: SCI-PATH/user-management
-            default_ref: main
-            checkout_path: services/user-management
-            context: services/user-management/backend
-            dockerfile: Dockerfile
-            local_tag: sci-path-um:ci
-            ecr_repo: sci-path/um
-          - svc: gaming
-            github_repo: SCI-PATH/gaming-service
-            default_ref: main
-            checkout_path: services/gaming-service
-            context: services/gaming-service/backend
-            dockerfile: Dockerfile
-            local_tag: sci-path-gaming:ci
-            ecr_repo: sci-path/gaming
-          - svc: analytics
-            github_repo: SCI-PATH/learner-analytics-genai-support
-            default_ref: develop
-            checkout_path: services/learner-analytics-genai-support
-            context: services/learner-analytics-genai-support
-            dockerfile: FastAPI-Backend/Dockerfile
-            local_tag: sci-path-analytics:ci
-            ecr_repo: sci-path/analytics
-          - svc: iae
-            github_repo: SCI-PATH/intelligent-assessment-engine
-            default_ref: dev
-            checkout_path: services/intelligent-assessment-engine
-            context: services/intelligent-assessment-engine
-            dockerfile: Dockerfile
-            local_tag: sci-path-iae:ci
-            ecr_repo: sci-path/iae
+        svc: ${{ fromJSON(needs.resolve.outputs.matrix) }}
     steps:
+      - name: Set build metadata
+        id: meta
+        run: |
+          case "${{ matrix.svc }}" in
+            lpe)
+              echo "github_repo=SCI-PATH/learning-path-engine" >> "$GITHUB_OUTPUT"
+              echo "default_ref=dev" >> "$GITHUB_OUTPUT"
+              echo "checkout_path=services/learning-path-engine" >> "$GITHUB_OUTPUT"
+              echo "context=services/learning-path-engine/backend" >> "$GITHUB_OUTPUT"
+              echo "dockerfile=Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "local_tag=sci-path-lpe:ci" >> "$GITHUB_OUTPUT"
+              echo "ecr_repo=sci-path/lpe" >> "$GITHUB_OUTPUT"
+              ;;
+            um)
+              echo "github_repo=SCI-PATH/user-management" >> "$GITHUB_OUTPUT"
+              echo "default_ref=main" >> "$GITHUB_OUTPUT"
+              echo "checkout_path=services/user-management" >> "$GITHUB_OUTPUT"
+              echo "context=services/user-management/backend" >> "$GITHUB_OUTPUT"
+              echo "dockerfile=Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "local_tag=sci-path-um:ci" >> "$GITHUB_OUTPUT"
+              echo "ecr_repo=sci-path/um" >> "$GITHUB_OUTPUT"
+              ;;
+            gaming)
+              echo "github_repo=SCI-PATH/gaming-service" >> "$GITHUB_OUTPUT"
+              echo "default_ref=main" >> "$GITHUB_OUTPUT"
+              echo "checkout_path=services/gaming-service" >> "$GITHUB_OUTPUT"
+              echo "context=services/gaming-service/backend" >> "$GITHUB_OUTPUT"
+              echo "dockerfile=Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "local_tag=sci-path-gaming:ci" >> "$GITHUB_OUTPUT"
+              echo "ecr_repo=sci-path/gaming" >> "$GITHUB_OUTPUT"
+              ;;
+            analytics)
+              echo "github_repo=SCI-PATH/learner-analytics-genai-support" >> "$GITHUB_OUTPUT"
+              echo "default_ref=develop" >> "$GITHUB_OUTPUT"
+              echo "checkout_path=services/learner-analytics-genai-support" >> "$GITHUB_OUTPUT"
+              echo "context=services/learner-analytics-genai-support" >> "$GITHUB_OUTPUT"
+              echo "dockerfile=FastAPI-Backend/Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "local_tag=sci-path-analytics:ci" >> "$GITHUB_OUTPUT"
+              echo "ecr_repo=sci-path/analytics" >> "$GITHUB_OUTPUT"
+              ;;
+            iae)
+              echo "github_repo=SCI-PATH/intelligent-assessment-engine" >> "$GITHUB_OUTPUT"
+              echo "default_ref=dev" >> "$GITHUB_OUTPUT"
+              echo "checkout_path=services/intelligent-assessment-engine" >> "$GITHUB_OUTPUT"
+              echo "context=services/intelligent-assessment-engine" >> "$GITHUB_OUTPUT"
+              echo "dockerfile=Dockerfile" >> "$GITHUB_OUTPUT"
+              echo "local_tag=sci-path-iae:ci" >> "$GITHUB_OUTPUT"
+              echo "ecr_repo=sci-path/iae" >> "$GITHUB_OUTPUT"
+              ;;
+            *) echo "Unknown svc ${{ matrix.svc }}"; exit 1 ;;
+          esac
+
       - name: Checkout orchestration
         uses: actions/checkout@v4
         with:
@@ -161,9 +179,9 @@ jobs:
       - name: Checkout service source
         uses: actions/checkout@v4
         with:
-          repository: ${{ matrix.github_repo }}
-          ref: ${{ needs.resolve.outputs.service == matrix.svc && needs.resolve.outputs.source_sha || matrix.default_ref }}
-          path: ${{ matrix.checkout_path }}
+          repository: ${{ steps.meta.outputs.github_repo }}
+          ref: ${{ needs.resolve.outputs.service == matrix.svc && needs.resolve.outputs.source_sha || steps.meta.outputs.default_ref }}
+          path: ${{ steps.meta.outputs.checkout_path }}
           token: ${{ secrets.SUBMODULES_ACCESS_TOKEN }}
 
       - name: Set up Docker Buildx
@@ -174,9 +192,9 @@ jobs:
       - name: Build image
         run: |
           set -euo pipefail
-          CONTEXT="${{ matrix.context }}"
-          FILE="${{ matrix.dockerfile }}"
-          TAG="${{ matrix.local_tag }}"
+          CONTEXT="${{ steps.meta.outputs.context }}"
+          FILE="${{ steps.meta.outputs.dockerfile }}"
+          TAG="${{ steps.meta.outputs.local_tag }}"
           if [ ! -d "$CONTEXT" ]; then
             echo "Missing $CONTEXT — checkout step failed?"
             ls -la services || true
@@ -204,8 +222,8 @@ jobs:
         run: |
           set -euo pipefail
           REGISTRY="${{ env.ECR_REGISTRY }}"
-          LOCAL="${{ matrix.local_tag }}"
-          REPO="${{ matrix.ecr_repo }}"
+          LOCAL="${{ steps.meta.outputs.local_tag }}"
+          REPO="${{ steps.meta.outputs.ecr_repo }}"
           docker tag "$LOCAL" "${REGISTRY}/${REPO}:latest"
           docker tag "$LOCAL" "${REGISTRY}/${REPO}:${IMAGE_TAG}"
           docker push "${REGISTRY}/${REPO}:latest"
@@ -216,11 +234,12 @@ jobs:
           IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
         run: |
           echo "## ${{ matrix.svc }} → ECR" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Image: \`${{ env.ECR_REGISTRY }}/${{ matrix.ecr_repo }}:latest\` + \`:$IMAGE_TAG\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: \`${{ env.ECR_REGISTRY }}/${{ steps.meta.outputs.ecr_repo }}:latest\` + \`:$IMAGE_TAG\`" >> "$GITHUB_STEP_SUMMARY"
 
   deploy-core:
     needs: [resolve, build]
     if: github.event_name != 'push' && (needs.resolve.outputs.service == 'all' || needs.resolve.outputs.service == 'lpe' || needs.resolve.outputs.service == 'um' || needs.resolve.outputs.service == 'gaming')
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - name: Deploy core (LPE + UM + gaming)
@@ -247,6 +266,7 @@ jobs:
   deploy-analytics:
     needs: [resolve, build]
     if: github.event_name != 'push' && (needs.resolve.outputs.service == 'all' || needs.resolve.outputs.service == 'analytics')
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - name: Deploy analytics
@@ -271,6 +291,7 @@ jobs:
   deploy-iae:
     needs: [resolve, build]
     if: github.event_name != 'push' && (needs.resolve.outputs.service == 'all' || needs.resolve.outputs.service == 'iae')
+    continue-on-error: true
     runs-on: ubuntu-latest
     steps:
       - name: Deploy IAE
