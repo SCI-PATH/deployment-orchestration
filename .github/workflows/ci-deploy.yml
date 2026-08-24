@@ -1,20 +1,10 @@
 # SCI-PATH — one pipeline for all backends.
 #
-# Flow: service push → repository_dispatch → build image(s) → push ECR → SSH EC2 pull/restart
-# Manual: Actions → sci-path-deploy → Run workflow → pick service
+# Each service builds on its own GitHub runner (avoids disk-full on "all").
+# Deploy targets 3 EC2s: core (LPE+UM+gaming), analytics, IAE.
+# Until EC2_HOST_ANALYTICS / EC2_HOST_IAE are set, those jobs use EC2_HOST.
 #
-# Secrets (deployment-orchestration repo) — see docs/ecr-pipeline.md:
-#   SUBMODULES_ACCESS_TOKEN — PAT with `repo` scope for all private SCI-PATH service repos
-#   AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY — ECR push
-#   AWS_REGION — e.g. ap-south-1
-#   EC2_HOST — Elastic IP (e.g. 3.6.20.31)
-#   EC2_SSH_KEY — private key PEM contents
-#   EC2_USER — ubuntu (optional; defaults to ubuntu)
-#
-# Triggers:
-#   - push main → fast compose validate only (no submodules)
-#   - workflow_dispatch → build selected image(s) + deploy
-#   - repository_dispatch (service-changed) → build one service from a backend repo push
+# Secrets — see docs/ecr-pipeline.md
 
 name: sci-path-deploy
 
@@ -95,7 +85,6 @@ jobs:
             esac
           fi
           if [ -z "$SVC" ]; then SVC=all; fi
-          # Short immutable tag for ECR (7-char sha when available)
           if [ "$SHA" = "all" ] || [ "$SHA" = "unknown" ] || [ "$SHA" = "dev" ] || [ "$SHA" = "main" ] || [ "$SHA" = "develop" ]; then
             TAG="${GITHUB_SHA:0:7}"
           else
@@ -109,9 +98,53 @@ jobs:
 
   build:
     needs: resolve
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && (needs.resolve.outputs.service == 'all' || needs.resolve.outputs.service == matrix.svc)
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 90
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - svc: lpe
+            github_repo: SCI-PATH/learning-path-engine
+            default_ref: dev
+            checkout_path: services/learning-path-engine
+            context: services/learning-path-engine/backend
+            dockerfile: Dockerfile
+            local_tag: sci-path-lpe:ci
+            ecr_repo: sci-path/lpe
+          - svc: um
+            github_repo: SCI-PATH/user-management
+            default_ref: main
+            checkout_path: services/user-management
+            context: services/user-management/backend
+            dockerfile: Dockerfile
+            local_tag: sci-path-um:ci
+            ecr_repo: sci-path/um
+          - svc: gaming
+            github_repo: SCI-PATH/gaming-service
+            default_ref: main
+            checkout_path: services/gaming-service
+            context: services/gaming-service/backend
+            dockerfile: Dockerfile
+            local_tag: sci-path-gaming:ci
+            ecr_repo: sci-path/gaming
+          - svc: analytics
+            github_repo: SCI-PATH/learner-analytics-genai-support
+            default_ref: develop
+            checkout_path: services/learner-analytics-genai-support
+            context: services/learner-analytics-genai-support
+            dockerfile: FastAPI-Backend/Dockerfile
+            local_tag: sci-path-analytics:ci
+            ecr_repo: sci-path/analytics
+          - svc: iae
+            github_repo: SCI-PATH/intelligent-assessment-engine
+            default_ref: dev
+            checkout_path: services/intelligent-assessment-engine
+            context: services/intelligent-assessment-engine
+            dockerfile: Dockerfile
+            local_tag: sci-path-iae:ci
+            ecr_repo: sci-path/iae
     steps:
       - name: Checkout orchestration
         uses: actions/checkout@v4
@@ -122,206 +155,139 @@ jobs:
         run: |
           if [ -z "${{ secrets.SUBMODULES_ACCESS_TOKEN }}" ]; then
             echo "Missing secret SUBMODULES_ACCESS_TOKEN on deployment-orchestration."
-            echo "Add a PAT with repo scope that can read all SCI-PATH service repos."
             exit 1
           fi
 
-      - name: Checkout learning-path-engine
-        if: contains(fromJSON('["all","lpe"]'), needs.resolve.outputs.service)
+      - name: Checkout service source
         uses: actions/checkout@v4
         with:
-          repository: SCI-PATH/learning-path-engine
-          ref: ${{ needs.resolve.outputs.service == 'lpe' && needs.resolve.outputs.source_sha || 'dev' }}
-          path: services/learning-path-engine
-          token: ${{ secrets.SUBMODULES_ACCESS_TOKEN }}
-
-      - name: Checkout user-management
-        if: contains(fromJSON('["all","um"]'), needs.resolve.outputs.service)
-        uses: actions/checkout@v4
-        with:
-          repository: SCI-PATH/user-management
-          ref: ${{ needs.resolve.outputs.service == 'um' && needs.resolve.outputs.source_sha || 'main' }}
-          path: services/user-management
-          token: ${{ secrets.SUBMODULES_ACCESS_TOKEN }}
-
-      - name: Checkout gaming-service
-        if: contains(fromJSON('["all","gaming"]'), needs.resolve.outputs.service)
-        uses: actions/checkout@v4
-        with:
-          repository: SCI-PATH/gaming-service
-          ref: ${{ needs.resolve.outputs.service == 'gaming' && needs.resolve.outputs.source_sha || 'main' }}
-          path: services/gaming-service
-          token: ${{ secrets.SUBMODULES_ACCESS_TOKEN }}
-
-      - name: Checkout learner-analytics
-        if: contains(fromJSON('["all","analytics"]'), needs.resolve.outputs.service)
-        uses: actions/checkout@v4
-        with:
-          repository: SCI-PATH/learner-analytics-genai-support
-          ref: ${{ needs.resolve.outputs.service == 'analytics' && needs.resolve.outputs.source_sha || 'develop' }}
-          path: services/learner-analytics-genai-support
-          token: ${{ secrets.SUBMODULES_ACCESS_TOKEN }}
-
-      - name: Checkout intelligent-assessment-engine
-        if: contains(fromJSON('["all","iae"]'), needs.resolve.outputs.service)
-        uses: actions/checkout@v4
-        with:
-          repository: SCI-PATH/intelligent-assessment-engine
-          ref: ${{ needs.resolve.outputs.service == 'iae' && needs.resolve.outputs.source_sha || 'dev' }}
-          path: services/intelligent-assessment-engine
+          repository: ${{ matrix.github_repo }}
+          ref: ${{ needs.resolve.outputs.service == matrix.svc && needs.resolve.outputs.source_sha || matrix.default_ref }}
+          path: ${{ matrix.checkout_path }}
           token: ${{ secrets.SUBMODULES_ACCESS_TOKEN }}
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker
 
-      - name: Build selected service image(s)
-        env:
-          SERVICE: ${{ needs.resolve.outputs.service }}
+      - name: Build image
         run: |
           set -euo pipefail
-          build_one () {
-            local name="$1" context="$2" tag="$3" file="${4:-Dockerfile}"
-            echo "::group::Build $name → $tag"
-            if [ ! -d "$context" ]; then
-              echo "Missing $context — checkout step failed?"
-              exit 1
-            fi
-            if [ "$file" = "Dockerfile" ]; then
-              docker build -t "$tag" "$context"
-            else
-              docker build -f "$context/$file" -t "$tag" "$context"
-            fi
-            echo "::endgroup::"
-          }
-
-          case "$SERVICE" in
-            all)
-              build_one lpe ./services/learning-path-engine/backend sci-path-lpe:ci
-              build_one um ./services/user-management/backend sci-path-um:ci
-              build_one gaming ./services/gaming-service/backend sci-path-gaming:ci
-              build_one analytics ./services/learner-analytics-genai-support sci-path-analytics:ci FastAPI-Backend/Dockerfile
-              build_one iae ./services/intelligent-assessment-engine sci-path-iae:ci
-              ;;
-            lpe) build_one lpe ./services/learning-path-engine/backend sci-path-lpe:ci ;;
-            um) build_one um ./services/user-management/backend sci-path-um:ci ;;
-            gaming) build_one gaming ./services/gaming-service/backend sci-path-gaming:ci ;;
-            analytics) build_one analytics ./services/learner-analytics-genai-support sci-path-analytics:ci FastAPI-Backend/Dockerfile ;;
-            iae) build_one iae ./services/intelligent-assessment-engine sci-path-iae:ci ;;
-            *) echo "Unknown service: $SERVICE"; exit 1 ;;
-          esac
-
-      - name: Validate compose file
-        run: |
-          cp .env.example .env
-          docker compose config -q
+          CONTEXT="${{ matrix.context }}"
+          FILE="${{ matrix.dockerfile }}"
+          TAG="${{ matrix.local_tag }}"
+          if [ ! -d "$CONTEXT" ]; then
+            echo "Missing $CONTEXT — checkout step failed?"
+            ls -la services || true
+            exit 1
+          fi
+          if [ "$FILE" = "Dockerfile" ]; then
+            docker build --provenance=false -t "$TAG" "$CONTEXT"
+          else
+            docker build --provenance=false -f "$CONTEXT/$FILE" -t "$TAG" "$CONTEXT"
+          fi
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY || secrets.AWS_ACCESS_SECRET_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
-        id: ecr-login
         uses: aws-actions/amazon-ecr-login@v2
 
-      - name: Push image(s) to ECR
+      - name: Push image to ECR
         env:
-          SERVICE: ${{ needs.resolve.outputs.service }}
           IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
         run: |
           set -euo pipefail
           REGISTRY="${{ env.ECR_REGISTRY }}"
-
-          push_one () {
-            local local_tag="$1" ecr_repo="$2"
-            local remote_latest="${REGISTRY}/${ecr_repo}:latest"
-            local remote_sha="${REGISTRY}/${ecr_repo}:${IMAGE_TAG}"
-            echo "::group::Push ${local_tag} → ${ecr_repo}"
-            docker tag "$local_tag" "$remote_latest"
-            docker tag "$local_tag" "$remote_sha"
-            docker push "$remote_latest"
-            docker push "$remote_sha"
-            echo "::endgroup::"
-          }
-
-          case "$SERVICE" in
-            all)
-              push_one sci-path-lpe:ci sci-path/lpe
-              push_one sci-path-um:ci sci-path/um
-              push_one sci-path-gaming:ci sci-path/gaming
-              push_one sci-path-analytics:ci sci-path/analytics
-              push_one sci-path-iae:ci sci-path/iae
-              ;;
-            lpe) push_one sci-path-lpe:ci sci-path/lpe ;;
-            um) push_one sci-path-um:ci sci-path/um ;;
-            gaming) push_one sci-path-gaming:ci sci-path/gaming ;;
-            analytics) push_one sci-path-analytics:ci sci-path/analytics ;;
-            iae) push_one sci-path-iae:ci sci-path/iae ;;
-            *) echo "Unknown service: $SERVICE"; exit 1 ;;
-          esac
+          LOCAL="${{ matrix.local_tag }}"
+          REPO="${{ matrix.ecr_repo }}"
+          docker tag "$LOCAL" "${REGISTRY}/${REPO}:latest"
+          docker tag "$LOCAL" "${REGISTRY}/${REPO}:${IMAGE_TAG}"
+          docker push "${REGISTRY}/${REPO}:latest"
+          docker push "${REGISTRY}/${REPO}:${IMAGE_TAG}"
 
       - name: Build summary
         env:
-          SERVICE: ${{ needs.resolve.outputs.service }}
-          SOURCE_REPO: ${{ needs.resolve.outputs.source_repo }}
-          SOURCE_SHA: ${{ needs.resolve.outputs.source_sha }}
           IMAGE_TAG: ${{ needs.resolve.outputs.image_tag }}
         run: |
-          echo "## SCI-PATH CI build + ECR push" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Service: **$SERVICE**" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Trigger: ${{ github.event_name }}" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Source: \`$SOURCE_REPO\` @ \`${SOURCE_SHA:0:7}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- ECR tag: \`:latest\` + \`:$IMAGE_TAG\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Registry: \`${{ env.ECR_REGISTRY }}\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "## ${{ matrix.svc }} → ECR" >> "$GITHUB_STEP_SUMMARY"
+          echo "- Image: \`${{ env.ECR_REGISTRY }}/${{ matrix.ecr_repo }}:latest\` + \`:$IMAGE_TAG\`" >> "$GITHUB_STEP_SUMMARY"
 
-  deploy-cloud:
+  deploy-core:
     needs: [resolve, build]
-    if: github.event_name != 'push'
+    if: github.event_name != 'push' && (needs.resolve.outputs.service == 'all' || needs.resolve.outputs.service == 'lpe' || needs.resolve.outputs.service == 'um' || needs.resolve.outputs.service == 'gaming')
     runs-on: ubuntu-latest
     steps:
-      - name: Verify EC2 deploy secrets
-        run: |
-          if [ -z "${{ secrets.EC2_HOST }}" ] || [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
-            echo "Missing EC2_HOST or EC2_SSH_KEY secrets on deployment-orchestration."
-            echo "See docs/ecr-pipeline.md"
-            exit 1
-          fi
-          echo "EC2 deploy secrets present."
-
-      - name: Deploy to EC2 (pull + restart)
+      - name: Deploy core (LPE + UM + gaming)
         env:
           SERVICE: ${{ needs.resolve.outputs.service }}
-          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_HOST: ${{ secrets.EC2_HOST_CORE || secrets.EC2_HOST }}
           EC2_USER: ${{ secrets.EC2_USER }}
         run: |
           set -euo pipefail
+          if [ -z "$EC2_HOST" ] || [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
+            echo "Missing EC2_HOST / EC2_HOST_CORE or EC2_SSH_KEY"
+            exit 1
+          fi
           EC2_USER="${EC2_USER:-ubuntu}"
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2.pem
           chmod 600 ~/.ssh/ec2.pem
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
-
-          case "$SERVICE" in
-            all) ARGS="all" ;;
-            lpe) ARGS="lpe" ;;
-            um) ARGS="um" ;;
-            gaming) ARGS="gaming" ;;
-            analytics) ARGS="analytics" ;;
-            iae) ARGS="iae" ;;
-            *) echo "Unknown service: $SERVICE"; exit 1 ;;
-          esac
-
+          if [ "$SERVICE" = "all" ]; then ARGS="core"; else ARGS="$SERVICE"; fi
           ssh -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=accept-new \
             "${EC2_USER}@${EC2_HOST}" \
             "cd /opt/sci-path/deployment-orchestration && bash scripts/ec2/deploy.sh ${ARGS}"
 
-      - name: Deploy summary
+  deploy-analytics:
+    needs: [resolve, build]
+    if: github.event_name != 'push' && (needs.resolve.outputs.service == 'all' || needs.resolve.outputs.service == 'analytics')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy analytics
         env:
-          SERVICE: ${{ needs.resolve.outputs.service }}
+          EC2_HOST: ${{ secrets.EC2_HOST_ANALYTICS || secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
         run: |
-          echo "## EC2 deploy" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Host: \`${{ secrets.EC2_HOST }}\`" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Service: **$SERVICE**" >> "$GITHUB_STEP_SUMMARY"
-          echo "- Command: \`bash scripts/ec2/deploy.sh\`" >> "$GITHUB_STEP_SUMMARY"
+          set -euo pipefail
+          if [ -z "$EC2_HOST" ] || [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
+            echo "Missing EC2_HOST_ANALYTICS / EC2_HOST or EC2_SSH_KEY"
+            exit 1
+          fi
+          EC2_USER="${EC2_USER:-ubuntu}"
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2.pem
+          chmod 600 ~/.ssh/ec2.pem
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=accept-new \
+            "${EC2_USER}@${EC2_HOST}" \
+            "cd /opt/sci-path/deployment-orchestration && bash scripts/ec2/deploy.sh analytics"
+
+  deploy-iae:
+    needs: [resolve, build]
+    if: github.event_name != 'push' && (needs.resolve.outputs.service == 'all' || needs.resolve.outputs.service == 'iae')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy IAE
+        env:
+          EC2_HOST: ${{ secrets.EC2_HOST_IAE || secrets.EC2_HOST }}
+          EC2_USER: ${{ secrets.EC2_USER }}
+        run: |
+          set -euo pipefail
+          if [ -z "$EC2_HOST" ] || [ -z "${{ secrets.EC2_SSH_KEY }}" ]; then
+            echo "Missing EC2_HOST_IAE / EC2_HOST or EC2_SSH_KEY"
+            exit 1
+          fi
+          EC2_USER="${EC2_USER:-ubuntu}"
+          mkdir -p ~/.ssh
+          echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/ec2.pem
+          chmod 600 ~/.ssh/ec2.pem
+          ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
+          ssh -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=accept-new \
+            "${EC2_USER}@${EC2_HOST}" \
+            "cd /opt/sci-path/deployment-orchestration && bash scripts/ec2/deploy.sh iae"

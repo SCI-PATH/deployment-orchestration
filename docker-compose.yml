@@ -1,4 +1,6 @@
-# SCI-PATH — local / single-EC2 stack (5 backends).
+# SCI-PATH — 5 backends. Compose profiles:
+#   core = LPE+UM+gaming | analytics | iae
+# Local / one box: COMPOSE_PROFILES=core,analytics,iae in .env
 # Uses pre-built image tags by default. Compose can also build from ./services/* submodules.
 #
 # Ports (no clashes):
@@ -16,6 +18,7 @@ name: sci-path
 
 services:
   learning-path-engine:
+    profiles: ["core"]
     image: ${IMAGE_LPE:-sci-path-lpe:local}
     build:
       context: ./services/learning-path-engine/backend
@@ -48,6 +51,7 @@ services:
       start_period: 40s
 
   user-management:
+    profiles: ["core"]
     image: ${IMAGE_UM:-sci-path-um:local}
     build:
       context: ./services/user-management/backend
@@ -77,6 +81,7 @@ services:
       start_period: 20s
 
   gaming-backend:
+    profiles: ["core"]
     image: ${IMAGE_GAMING:-sci-path-gaming:local}
     build:
       context: ./services/gaming-service/backend
@@ -112,6 +117,7 @@ services:
       start_period: 10s
 
   learner-analytics:
+    profiles: ["analytics"]
     image: ${IMAGE_ANALYTICS:-sci-path-analytics:local}
     build:
       context: ./services/learner-analytics-genai-support
@@ -140,6 +146,7 @@ services:
       start_period: 60s
 
   intelligent-assessment-engine:
+    profiles: ["iae"]
     image: ${IMAGE_IAE:-sci-path-iae:local}
     build:
       context: ./services/intelligent-assessment-engine
@@ -167,9 +174,6 @@ services:
     networks:
       - sci-path
     restart: unless-stopped
-    depends_on:
-      - learner-analytics
-      - learning-path-engine
     healthcheck:
       test:
         [

@@ -14,11 +14,11 @@ powershell -ExecutionPolicy Bypass -File .\scripts\update-submodules.ps1
 
 if ($Build) {
   Write-Host "Building images from ./services submodules, then starting..." -ForegroundColor Yellow
-  docker compose up -d --build
+  docker compose --profile core --profile analytics --profile iae up -d --build
 } else {
   Write-Host "Starting containers (uses existing :local images)..." -ForegroundColor Yellow
   Write-Host "Tip: pass -Build to rebuild from ./services submodules." -ForegroundColor DarkGray
-  docker compose up -d
+  docker compose --profile core --profile analytics --profile iae up -d
 }
 
 Write-Host ""

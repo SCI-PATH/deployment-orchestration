@@ -8,7 +8,39 @@ service repo push
   → deployment-orchestration ci-deploy.yml
   → build sci-path-*:ci
   → push 011877215030.dkr.ecr.ap-south-1.amazonaws.com/sci-path/{lpe|um|gaming|analytics|iae}:latest (+ :sha)
-  → ssh ubuntu@EC2_HOST 'bash scripts/ec2/deploy.sh <service>'
+  → ssh to the matching EC2 (core / analytics / IAE)
+```
+
+Builds run as **5 parallel GitHub jobs** (one image per runner) so a single runner does not run out of disk.
+
+## 3 EC2 layout
+
+| Instance | Profile | Ports | GitHub secret for host |
+|----------|---------|-------|------------------------|
+| Core | `core` | 8000 LPE, 8001 UM, 8002 Gaming | `EC2_HOST_CORE` (falls back to `EC2_HOST`) |
+| Analytics | `analytics` | 8003 | `EC2_HOST_ANALYTICS` |
+| IAE | `iae` | 8004 | `EC2_HOST_IAE` |
+
+Until you create the extra boxes, leave `EC2_HOST_ANALYTICS` / `EC2_HOST_IAE` unset — deploy still uses `EC2_HOST`.
+
+On the **IAE** instance `.env`, point at the other boxes (not Docker service names):
+
+```env
+COMPOSE_PROFILES=iae
+COMPONENT_1_URL=http://CORE_ELASTIC_IP:8000
+COMPONENT_3_URL=http://CORE_ELASTIC_IP:8002
+COMPONENT_4_URL=http://ANALYTICS_ELASTIC_IP:8003
+ANALYTICS_BASE_URL=http://ANALYTICS_ELASTIC_IP:8003
+IAE_API_BASE_URL=http://IAE_ELASTIC_IP:8004
+```
+
+Core / analytics boxes:
+
+```env
+# core
+COMPOSE_PROFILES=core
+# analytics
+COMPOSE_PROFILES=analytics
 ```
 
 ## ECR repositories (already created)
@@ -29,9 +61,12 @@ Repo → **Settings** → **Secrets and variables** → **Actions** → add:
 |--------|--------|
 | `SUBMODULES_ACCESS_TOKEN` | PAT with `repo` (read private service repos) |
 | `AWS_ACCESS_KEY_ID` | IAM user access key (ECR push) |
-| `AWS_SECRET_ACCESS_KEY` | IAM secret |
+| `AWS_SECRET_ACCESS_KEY` | IAM secret (**exact name** — not `AWS_ACCESS_SECRET_KEY`) |
 | `AWS_REGION` | `ap-south-1` (optional if you rely on workflow default) |
-| `EC2_HOST` | `3.6.20.31` (Elastic IP) |
+| `EC2_HOST` | Core instance Elastic IP (current box: `3.6.20.31`) |
+| `EC2_HOST_CORE` | Optional; overrides `EC2_HOST` for LPE/UM/gaming |
+| `EC2_HOST_ANALYTICS` | Analytics instance IP (omit until that EC2 exists) |
+| `EC2_HOST_IAE` | IAE instance IP (omit until that EC2 exists) |
 | `EC2_SSH_KEY` | Full contents of `sci-path-demo.pem` (including `BEGIN/END` lines) |
 | `EC2_USER` | `ubuntu` (optional) |
 

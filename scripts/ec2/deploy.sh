@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
 # EC2 deploy helper — pull from ECR and restart compose services.
 # Usage on instance:
-#   bash scripts/ec2/deploy.sh all
+#   bash scripts/ec2/deploy.sh all       # all profiles (or COMPOSE_PROFILES from .env)
+#   bash scripts/ec2/deploy.sh core      # LPE + UM + gaming
+#   bash scripts/ec2/deploy.sh analytics
 #   bash scripts/ec2/deploy.sh iae
 #
 # Requires in .env: ECR_REGISTRY, AWS_REGION (and AWS credentials or instance role).
-# For ECR pulls, set IMAGE_* URIs in .env (see docs/ecr-pipeline.md).
+# Split EC2: set COMPOSE_PROFILES=core|analytics|iae (see docs/ecr-pipeline.md).
 
 set -euo pipefail
 
@@ -19,7 +21,6 @@ fi
 
 cd "$APP_DIR"
 
-# Load ECR_REGISTRY / AWS_REGION / IMAGE_* without exporting unrelated secrets into the shell log
 set -a
 # shellcheck disable=SC1091
 source .env
@@ -46,7 +47,6 @@ aws ecr get-login-password --region "$REGION" \
 echo "==> Refreshing orchestration repo (compose + scripts only)..."
 git pull --ff-only || echo "WARN: git pull failed (continuing with current tree)"
 
-# Short name → docker compose service name
 compose_svc() {
   case "$1" in
     lpe) echo "learning-path-engine" ;;
@@ -58,23 +58,47 @@ compose_svc() {
   esac
 }
 
+up_profiles() {
+  local profiles="$1"
+  # shellcheck disable=SC2086
+  docker compose $profiles pull
+  # shellcheck disable=SC2086
+  docker compose $profiles up -d --no-build
+}
+
 case "$SERVICE" in
   all)
-    echo "==> Pulling all images..."
-    docker compose pull
-    docker compose up -d --no-build
+    echo "==> Pulling (COMPOSE_PROFILES=${COMPOSE_PROFILES:-core,analytics,iae})..."
+    if [ -n "${COMPOSE_PROFILES:-}" ]; then
+      docker compose pull
+      docker compose up -d --no-build
+    else
+      up_profiles "--profile core --profile analytics --profile iae"
+    fi
     ;;
-  lpe|um|gaming|analytics|iae)
+  core)
+    echo "==> Pulling core profile (LPE + UM + gaming)..."
+    up_profiles "--profile core"
+    ;;
+  analytics)
+    echo "==> Pulling analytics profile..."
+    up_profiles "--profile analytics"
+    ;;
+  iae)
+    echo "==> Pulling IAE profile..."
+    up_profiles "--profile iae"
+    ;;
+  lpe|um|gaming)
     COMPOSE_NAME="$(compose_svc "$SERVICE")"
     echo "==> Pulling $COMPOSE_NAME..."
-    docker compose pull "$COMPOSE_NAME"
-    docker compose up -d --no-build "$COMPOSE_NAME"
+    docker compose --profile core pull "$COMPOSE_NAME"
+    docker compose --profile core up -d --no-build "$COMPOSE_NAME"
     ;;
   *)
-    echo "Unknown service: $SERVICE (use all|lpe|um|gaming|analytics|iae)"
+    echo "Unknown service: $SERVICE (use all|core|lpe|um|gaming|analytics|iae)"
     exit 1
     ;;
 esac
 
 echo ""
-docker compose ps
+docker compose --profile core --profile analytics --profile iae ps
