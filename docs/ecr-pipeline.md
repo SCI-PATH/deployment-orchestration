@@ -144,7 +144,9 @@ bash scripts/ec2/deploy.sh all
 
 ### Pull `:latest` automatically when the EC2 starts
 
-If GitHub Actions deploy fails because the instance was **stopped**, ECR still has the new image. Enable a oneshot systemd unit so boot runs `deploy.sh` (ECR login → pull `:latest` → `up -d`):
+`deploy.sh` always **stops the old containers, deletes their local images, then pulls only `:latest`** before starting again. That keeps peak disk to roughly one image size (old+new side-by-side was filling the analytics box). The same script runs from CI SSH and from boot.
+
+If GitHub Actions deploy fails because the instance was **stopped**, ECR still has the new image. Enable a oneshot systemd unit so boot runs `deploy.sh` (ECR login → drop old images → pull `:latest` → `up -d`):
 
 ```bash
 cd /opt/sci-path/deployment-orchestration

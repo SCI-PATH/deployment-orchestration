@@ -168,6 +168,9 @@ services:
       API_BASE_URL: ${IAE_API_BASE_URL:-http://localhost:8004}
       DATABASE_URL: ${IAE_DATABASE_URL:-${DATABASE_URL:-}}
       CHROMA_PERSIST_DIR: /app/data/chroma_db
+      # System user in image has HOME=/nonexistent; HF needs a writable cache for ingest.
+      HOME: /app/data
+      HF_HOME: /app/data/cache/huggingface
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-groq}
       COMPONENT_1_URL: ${COMPONENT_1_URL:-http://learning-path-engine:8000}
