@@ -261,7 +261,7 @@ jobs:
           if [ "$SERVICE" = "all" ]; then ARGS="core"; else ARGS="$SERVICE"; fi
           ssh -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=accept-new \
             "${EC2_USER}@${EC2_HOST}" \
-            "cd /opt/sci-path/deployment-orchestration && bash scripts/ec2/deploy.sh ${ARGS}"
+            "cd /opt/sci-path/deployment-orchestration && sed -i 's/\r$//' scripts/ec2/*.sh && bash scripts/ec2/deploy.sh ${ARGS}"
 
   deploy-analytics:
     needs: [resolve, build]
@@ -286,7 +286,7 @@ jobs:
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
           ssh -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=accept-new \
             "${EC2_USER}@${EC2_HOST}" \
-            "cd /opt/sci-path/deployment-orchestration && bash scripts/ec2/deploy.sh analytics"
+            "cd /opt/sci-path/deployment-orchestration && sed -i 's/\r$//' scripts/ec2/*.sh && bash scripts/ec2/deploy.sh analytics"
 
   deploy-iae:
     needs: [resolve, build]
@@ -311,4 +311,4 @@ jobs:
           ssh-keyscan -H "$EC2_HOST" >> ~/.ssh/known_hosts 2>/dev/null || true
           ssh -i ~/.ssh/ec2.pem -o StrictHostKeyChecking=accept-new \
             "${EC2_USER}@${EC2_HOST}" \
-            "cd /opt/sci-path/deployment-orchestration && bash scripts/ec2/deploy.sh iae"
+            "cd /opt/sci-path/deployment-orchestration && sed -i 's/\r$//' scripts/ec2/*.sh && bash scripts/ec2/deploy.sh iae"
