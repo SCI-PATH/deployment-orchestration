@@ -41,6 +41,10 @@ services:
       AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
       S3_BUCKET: ${S3_BUCKET:-}
       S3_LESSON_PREFIX: ${S3_LESSON_PREFIX:-lesson-media}
+      JWT_SECRET: ${JWT_SECRET:-}
+      JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
+      LPE_TEACHER_AUTH: ${LPE_TEACHER_AUTH:-required}
+      LPE_SERVICE_KEY: ${LPE_SERVICE_KEY:-}
     volumes:
       - lpe-data:/app/data
       - lpe-chroma-cache:/root/.cache/chroma
@@ -72,7 +76,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:-dev-change-me-user-management-secret-key-32chars}
       JWT_ALGORITHM: ${JWT_ALGORITHM:-HS256}
       ACCESS_TOKEN_EXPIRE_MINUTES: ${ACCESS_TOKEN_EXPIRE_MINUTES:-360}
-      EXPOSE_RESET_TOKEN: ${EXPOSE_RESET_TOKEN:-true}
+      EXPOSE_RESET_TOKEN: ${EXPOSE_RESET_TOKEN:-false}
     volumes:
       - um-data:/app/data
     networks:
