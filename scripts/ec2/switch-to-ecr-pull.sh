@@ -13,7 +13,7 @@ if [ "${1:-}" = "--dry-run" ]; then
 fi
 
 APP_DIR="/opt/sci-path/deployment-orchestration"
-REG="011877215030.dkr.ecr.ap-south-1.amazonaws.com"
+REG="569757034406.dkr.ecr.ap-southeast-2.amazonaws.com"
 
 run() {
   if [ "$DRY_RUN" = "1" ]; then

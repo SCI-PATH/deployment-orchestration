@@ -8,7 +8,7 @@
 # Usage:
 #   bash scripts/ec2/allocate-elastic-ip.sh
 #   bash scripts/ec2/allocate-elastic-ip.sh i-0abc123def456
-#   AWS_REGION=ap-south-1 bash scripts/ec2/allocate-elastic-ip.sh
+#   AWS_REGION=ap-southeast-2 bash scripts/ec2/allocate-elastic-ip.sh
 #
 # After success, put the printed IP into:
 #   deployment-orchestration/.env  →  EC2_HOST=<ip>
@@ -16,7 +16,7 @@
 
 set -euo pipefail
 
-REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-ap-south-1}}"
+REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-ap-southeast-2}}"
 INSTANCE_ID="${1:-}"
 
 echo "==> Region: $REGION"

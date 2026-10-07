@@ -31,11 +31,11 @@ set +a
 
 if [ -z "${ECR_REGISTRY:-}" ]; then
   echo "ECR_REGISTRY is not set in $APP_DIR/.env"
-  echo "Example: ECR_REGISTRY=011877215030.dkr.ecr.ap-south-1.amazonaws.com"
+  echo "Example: ECR_REGISTRY=569757034406.dkr.ecr.ap-southeast-2.amazonaws.com"
   exit 1
 fi
 
-REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-ap-south-1}}"
+REGION="${AWS_REGION:-${AWS_DEFAULT_REGION:-ap-southeast-2}}"
 # Analytics image historically balloons with CUDA/torch; keep headroom for pull+extract.
 MIN_FREE_GB="${DEPLOY_MIN_FREE_GB:-8}"
 

@@ -39,8 +39,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  AWS_REGION: ${{ secrets.AWS_REGION || 'ap-south-1' }}
-  ECR_REGISTRY: 011877215030.dkr.ecr.ap-south-1.amazonaws.com
+  AWS_REGION: ${{ secrets.AWS_REGION || 'ap-southeast-2' }}
+  ECR_REGISTRY: 569757034406.dkr.ecr.ap-southeast-2.amazonaws.com
 
 jobs:
   validate:

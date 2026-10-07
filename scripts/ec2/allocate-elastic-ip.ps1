@@ -7,7 +7,7 @@
 # Usage:
 #   .\scripts\ec2\allocate-elastic-ip.ps1
 #   .\scripts\ec2\allocate-elastic-ip.ps1 -InstanceId i-0abc123def456
-#   $env:AWS_REGION = "ap-south-1"; .\scripts\ec2\allocate-elastic-ip.ps1
+#   $env:AWS_REGION = "ap-southeast-2"; .\scripts\ec2\allocate-elastic-ip.ps1
 #
 # After success, put the printed IP into:
 #   deployment-orchestration/.env  →  EC2_HOST=<ip>
@@ -15,7 +15,7 @@
 
 param(
   [string]$InstanceId = "",
-  [string]$Region = $(if ($env:AWS_REGION) { $env:AWS_REGION } elseif ($env:AWS_DEFAULT_REGION) { $env:AWS_DEFAULT_REGION } else { "ap-south-1" })
+  [string]$Region = $(if ($env:AWS_REGION) { $env:AWS_REGION } elseif ($env:AWS_DEFAULT_REGION) { $env:AWS_DEFAULT_REGION } else { "ap-southeast-2" })
 )
 
 $ErrorActionPreference = "Stop"

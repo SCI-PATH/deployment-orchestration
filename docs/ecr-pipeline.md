@@ -7,7 +7,7 @@ service repo push
   → trigger-orchestration.yml (repository_dispatch)
   → deployment-orchestration ci-deploy.yml
   → build sci-path-*:ci
-  → push 011877215030.dkr.ecr.ap-south-1.amazonaws.com/sci-path/{lpe|um|gaming|analytics|iae}:latest (+ :sha)
+  → push 569757034406.dkr.ecr.ap-southeast-2.amazonaws.com/sci-path/{lpe|um|gaming|analytics|iae}:latest (+ :sha)
   → ssh to the matching EC2 (core / analytics / IAE)
 ```
 
@@ -47,7 +47,7 @@ COMPOSE_PROFILES=analytics
 
 | Service | ECR repo URI |
 |---------|----------------|
-| LPE | `011877215030.dkr.ecr.ap-south-1.amazonaws.com/sci-path/lpe` |
+| LPE | `569757034406.dkr.ecr.ap-southeast-2.amazonaws.com/sci-path/lpe` |
 | UM | `.../sci-path/um` |
 | Gaming | `.../sci-path/gaming` |
 | Analytics | `.../sci-path/analytics` |
@@ -62,12 +62,12 @@ Repo → **Settings** → **Secrets and variables** → **Actions** → add:
 | `SUBMODULES_ACCESS_TOKEN` | PAT with `repo` (read private service repos) |
 | `AWS_ACCESS_KEY_ID` | IAM user access key (ECR push) |
 | `AWS_SECRET_ACCESS_KEY` | IAM secret (**exact name** — not `AWS_ACCESS_SECRET_KEY`) |
-| `AWS_REGION` | `ap-south-1` (optional if you rely on workflow default) |
-| `EC2_HOST` | Core instance Elastic IP (current box: `3.6.20.31`) |
-| `EC2_HOST_CORE` | Optional; overrides `EC2_HOST` for LPE/UM/gaming |
-| `EC2_HOST_ANALYTICS` | Analytics instance IP (omit until that EC2 exists) |
-| `EC2_HOST_IAE` | IAE instance IP (omit until that EC2 exists) |
-| `EC2_SSH_KEY` | Full contents of `sci-path-demo.pem` (including `BEGIN/END` lines) |
+| `AWS_REGION` | `ap-southeast-2` (optional if you rely on workflow default) |
+| `EC2_HOST` | Core Elastic IP `54.253.38.67` |
+| `EC2_HOST_CORE` | Same as core: `54.253.38.67` |
+| `EC2_HOST_ANALYTICS` | Analytics Elastic IP `54.253.36.7` |
+| `EC2_HOST_IAE` | IAE Elastic IP `3.104.28.68` |
+| `EC2_SSH_KEY` | Full contents of `sci-path-demo2.pem` (including `BEGIN/END` lines) |
 | `EC2_USER` | `ubuntu` (optional) |
 
 ### IAM policy for the CI user (minimum)
@@ -95,7 +95,7 @@ Allow ECR push/pull on `sci-path/*` and `ecr:GetAuthorizationToken`. Example:
         "ecr:CompleteLayerUpload",
         "ecr:DescribeRepositories"
       ],
-      "Resource": "arn:aws:ecr:ap-south-1:011877215030:repository/sci-path/*"
+      "Resource": "arn:aws:ecr:ap-southeast-2:569757034406:repository/sci-path/*"
     }
   ]
 }
@@ -113,19 +113,19 @@ sudo apt-get install -y awscli
 # Credentials: either attach an IAM instance role with ECR pull,
 # or configure the same IAM user:
 aws configure
-# AWS Access Key ID / Secret / region ap-south-1
+# AWS Access Key ID / Secret / region ap-southeast-2
 ```
 
 In `/opt/sci-path/deployment-orchestration/.env`, set:
 
 ```env
-AWS_REGION=ap-south-1
-ECR_REGISTRY=011877215030.dkr.ecr.ap-south-1.amazonaws.com
-IMAGE_LPE=011877215030.dkr.ecr.ap-south-1.amazonaws.com/sci-path/lpe:latest
-IMAGE_UM=011877215030.dkr.ecr.ap-south-1.amazonaws.com/sci-path/um:latest
-IMAGE_GAMING=011877215030.dkr.ecr.ap-south-1.amazonaws.com/sci-path/gaming:latest
-IMAGE_ANALYTICS=011877215030.dkr.ecr.ap-south-1.amazonaws.com/sci-path/analytics:latest
-IMAGE_IAE=011877215030.dkr.ecr.ap-south-1.amazonaws.com/sci-path/iae:latest
+AWS_REGION=ap-southeast-2
+ECR_REGISTRY=569757034406.dkr.ecr.ap-southeast-2.amazonaws.com
+IMAGE_LPE=569757034406.dkr.ecr.ap-southeast-2.amazonaws.com/sci-path/lpe:latest
+IMAGE_UM=569757034406.dkr.ecr.ap-southeast-2.amazonaws.com/sci-path/um:latest
+IMAGE_GAMING=569757034406.dkr.ecr.ap-southeast-2.amazonaws.com/sci-path/gaming:latest
+IMAGE_ANALYTICS=569757034406.dkr.ecr.ap-southeast-2.amazonaws.com/sci-path/analytics:latest
+IMAGE_IAE=569757034406.dkr.ecr.ap-southeast-2.amazonaws.com/sci-path/iae:latest
 ```
 
 Pull orchestration changes (after this PR is on `main`):
@@ -178,10 +178,10 @@ From **EC2**, after AWS CLI login works:
 ```bash
 cd /opt/sci-path/deployment-orchestration
 source .env
-aws ecr get-login-password --region ap-south-1 \
+aws ecr get-login-password --region ap-southeast-2 \
   | docker login --username AWS --password-stdin "$ECR_REGISTRY"
 
-REG=011877215030.dkr.ecr.ap-south-1.amazonaws.com
+REG=569757034406.dkr.ecr.ap-southeast-2.amazonaws.com
 
 docker tag sci-path-lpe:local        $REG/sci-path/lpe:latest
 docker tag sci-path-um:local         $REG/sci-path/um:latest
@@ -204,7 +204,7 @@ Or skip seeding and run **Actions → sci-path-deploy → Run workflow → all**
 2. Uncomment `IMAGE_*` on EC2 `.env`.
 3. Push a tiny change to e.g. `gaming-service` `main`/`dev`, **or** run workflow_dispatch for `gaming`.
 4. Watch `deployment-orchestration` Actions: build → ECR push → EC2 deploy.
-5. Check: `curl http://3.6.20.31:8002/api/health`
+5. Check: `curl http://54.253.38.67:8002/api/health`
 
 ## Local vs EC2 images
 
